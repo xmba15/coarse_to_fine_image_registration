@@ -7,21 +7,25 @@
 
 #pragma once
 
-#include <opencv2/opencv.hpp>
+#include <iostream>
 
 namespace _cv
 {
-inline cv::Mat scaleHomography(const cv::Mat& homography, float scale)
-{
-    if (scale <= 0) {
-        throw std::runtime_error("scale must be > 0");
+#define INFO_LOG(...)                                                                                                  \
+    {                                                                                                                  \
+        char str[100];                                                                                                 \
+        snprintf(str, sizeof(str), __VA_ARGS__);                                                                       \
+        std::cout << "[" << __FILE__ << "][" << __FUNCTION__ << "][Line " << __LINE__ << "] >>> " << str << std::endl; \
     }
-    cv::Mat scaledHomography = homography.clone();
-    scaledHomography.ptr<float>(0)[2] *= scale;
-    scaledHomography.ptr<float>(1)[2] *= scale;
-    scaledHomography.ptr<float>(2)[0] /= scale;
-    scaledHomography.ptr<float>(2)[1] /= scale;
 
-    return scaledHomography;
-}
+#if ENABLE_DEBUG
+#define DEBUG_LOG(...)                                                                                                 \
+    {                                                                                                                  \
+        char str[100];                                                                                                 \
+        snprintf(str, sizeof(str), __VA_ARGS__);                                                                       \
+        std::cout << "[" << __FILE__ << "][" << __FUNCTION__ << "][Line " << __LINE__ << "] >>> " << str << std::endl; \
+    }
+#else
+#define DEBUG_LOG(...)
+#endif
 }  // namespace _cv

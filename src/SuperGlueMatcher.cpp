@@ -40,6 +40,7 @@ class SuperGlueMatcher::SuperGlueMatcherImpl
 
         _cv::SuperGlue::Param superGlueParam;
         superGlueParam.pathToWeights = m_param.pathToSuperGlueWeights;
+        superGlueParam.matchThreshold = m_param.superGlueConfidenceThresh;
         superGlueParam.gpuIdx = m_param.gpuIdx;
         m_superGlue = _cv::SuperGlue::create(superGlueParam);
     }
@@ -47,7 +48,7 @@ class SuperGlueMatcher::SuperGlueMatcherImpl
     ~SuperGlueMatcherImpl() = default;
 
  public:
-    KeyPointMatches run(const cv::Mat& queryImage, const cv::Mat& refImage) const
+    KeyPointMatches runCoarseMatching(const cv::Mat& queryImage, const cv::Mat& refImage) const
     {
         if (queryImage.empty() || queryImage.channels() != 1) {
             throw std::runtime_error("Invalid query image");
@@ -58,12 +59,105 @@ class SuperGlueMatcher::SuperGlueMatcherImpl
         }
 
         KeyPointMatches kptMatches;
-
         m_superPoint->detectAndCompute(queryImage, cv::Mat(), kptMatches.queryKpts, kptMatches.queryDescs);
         m_superPoint->detectAndCompute(refImage, cv::Mat(), kptMatches.refKpts, kptMatches.refDescs);
-
         m_superGlue->match(kptMatches.queryDescs, kptMatches.queryKpts, queryImage.size(), kptMatches.refDescs,
                            kptMatches.refKpts, refImage.size(), kptMatches.matchIndices);
+        return kptMatches;
+    }
+
+    KeyPointMatches runFineMatching(const cv::Mat& queryImage, const cv::Mat& refImage) const
+    {
+        if (queryImage.empty() || queryImage.channels() != 1) {
+            throw std::runtime_error("Invalid query image");
+        }
+
+        if (refImage.empty() || refImage.channels() != 1) {
+            throw std::runtime_error("Invalid reference image");
+        }
+
+        return this->matchBySlidingWindow(queryImage, refImage);
+    }
+
+ private:
+    KeyPointMatches matchBySlidingWindow(const cv::Mat& queryImage, const cv::Mat& refImage, int numRowDivision = 2,
+                                         int numColDivision = 2) const
+    {
+        if (queryImage.rows != refImage.rows || queryImage.cols != refImage.cols) {
+            throw std::runtime_error("Query and reference images must be of the same size");
+        }
+
+        if (numRowDivision <= 0 || numColDivision <= 0) {
+            throw std::runtime_error("Number of divisions must be more than 1");
+        }
+
+        int height = queryImage.rows;
+        int width = queryImage.cols;
+        int rowStep = height / numRowDivision;
+        int colStep = width / numColDivision;
+
+        KeyPointMatches kptMatches;
+        int count = 0;
+
+        for (int yMin = 0; yMin < height; yMin += rowStep) {
+            for (int xMin = 0; xMin < width; xMin += colStep) {
+                int yMax = std::min<int>(yMin + rowStep - 1, height - 1);
+                int xMax = std::min<int>(xMin + colStep - 1, width - 1);
+
+                int yMinBuffer = std::max<int>(yMin - m_param.borderRemove, 0);
+                int xMinBuffer = std::max<int>(xMin - m_param.borderRemove, 0);
+
+                int yMaxBuffer = std::min<int>(yMax + m_param.borderRemove, height - 1);
+                int xMaxBuffer = std::min<int>(xMax + m_param.borderRemove, width - 1);
+
+                auto curWindow = cv::Rect(cv::Point(xMinBuffer, yMinBuffer), cv::Point(xMaxBuffer, yMaxBuffer));
+
+                KeyPointMatches curKptMatches;
+                m_superPoint->detectAndCompute(cv::Mat(queryImage, curWindow), cv::Mat(), curKptMatches.queryKpts,
+                                               curKptMatches.queryDescs);
+                m_superPoint->detectAndCompute(cv::Mat(refImage, curWindow), cv::Mat(), curKptMatches.refKpts,
+                                               curKptMatches.refDescs);
+
+                m_superGlue->match(curKptMatches.queryDescs, curKptMatches.queryKpts, curWindow.size(),
+                                   curKptMatches.refDescs, curKptMatches.refKpts, curWindow.size(),
+                                   curKptMatches.matchIndices);
+
+                for (const auto& curMatch : curKptMatches.matchIndices) {
+                    int queryX = curKptMatches.queryKpts[curMatch.queryIdx].pt.x;
+                    int queryY = curKptMatches.queryKpts[curMatch.queryIdx].pt.y;
+
+                    int refX = curKptMatches.refKpts[curMatch.trainIdx].pt.x;
+                    int refY = curKptMatches.refKpts[curMatch.trainIdx].pt.y;
+
+                    if (queryX < xMin - xMinBuffer || queryX > xMax - xMinBuffer || queryY < yMin - yMinBuffer ||
+                        queryY > yMax - yMinBuffer) {
+                        continue;
+                    }
+
+                    if (refX < xMin - xMinBuffer || refX > xMax - xMinBuffer || refY < yMin - yMinBuffer ||
+                        refY > yMax - yMinBuffer) {
+                        continue;
+                    }
+
+                    cv::KeyPoint queryKpt = curKptMatches.queryKpts[curMatch.queryIdx];
+                    cv::KeyPoint refKpt = curKptMatches.refKpts[curMatch.trainIdx];
+                    queryKpt.pt.x += xMinBuffer;
+                    queryKpt.pt.y += yMinBuffer;
+                    refKpt.pt.x += xMinBuffer;
+                    refKpt.pt.y += yMinBuffer;
+                    kptMatches.queryKpts.emplace_back(std::move(queryKpt));
+                    kptMatches.refKpts.emplace_back(std::move(refKpt));
+                    kptMatches.queryDescs.push_back(curKptMatches.queryDescs.row(curMatch.queryIdx));
+                    kptMatches.refDescs.push_back(curKptMatches.refDescs.row(curMatch.trainIdx));
+                    cv::DMatch matchIndex;
+                    matchIndex.queryIdx = count;
+                    matchIndex.trainIdx = count;
+                    matchIndex.distance = curMatch.distance;
+                    kptMatches.matchIndices.emplace_back(std::move(matchIndex));
+                    count++;
+                }
+            }
+        }
 
         return kptMatches;
     }
@@ -81,8 +175,13 @@ SuperGlueMatcher::SuperGlueMatcher(const Param& param)
 
 SuperGlueMatcher::~SuperGlueMatcher() = default;
 
-KeyPointMatches SuperGlueMatcher::run(const cv::Mat& queryImage, const cv::Mat& refImage) const
+KeyPointMatches SuperGlueMatcher::runCoarseMatching(const cv::Mat& queryImage, const cv::Mat& refImage) const
 {
-    return m_piml->run(queryImage, refImage);
+    return m_piml->runCoarseMatching(queryImage, refImage);
+}
+
+KeyPointMatches SuperGlueMatcher::runFineMatching(const cv::Mat& queryImage, const cv::Mat& refImage) const
+{
+    return m_piml->runFineMatching(queryImage, refImage);
 }
 }  // namespace _cv

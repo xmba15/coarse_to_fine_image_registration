@@ -25,8 +25,12 @@ class SuperGlueMatcher
         int imageHeight = 480;
         int imageWidth = 640;
         float distThresh = 1;  // nms
-        float borderRemove = 2;
-        float confidenceThresh = 0.01;
+        float borderRemove = 4;
+        float confidenceThresh = 0.2;
+
+        // superglue param
+        float superGlueConfidenceThresh = 0.5;
+
         int gpuIdx = -1;
     };
 
@@ -34,7 +38,8 @@ class SuperGlueMatcher
     explicit SuperGlueMatcher(const Param& param);
     ~SuperGlueMatcher();
 
-    KeyPointMatches run(const cv::Mat& queryImage, const cv::Mat& refImage) const;
+    KeyPointMatches runCoarseMatching(const cv::Mat& queryImage, const cv::Mat& refImage) const;
+    KeyPointMatches runFineMatching(const cv::Mat& queryImage, const cv::Mat& refImage) const;
 
  private:
     class SuperGlueMatcherImpl;

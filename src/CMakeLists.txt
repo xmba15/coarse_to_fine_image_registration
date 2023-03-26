@@ -1,8 +1,9 @@
 cmake_minimum_required(VERSION 3.10)
 
 set(SOURCE_FILES
-  ${PROJECT_SOURCE_DIR}/src/image_registration.cpp
+  ${PROJECT_SOURCE_DIR}/src/ImageRegistrationHandler.cpp
   ${PROJECT_SOURCE_DIR}/src/SuperGlueMatcher.cpp
+  ${PROJECT_SOURCE_DIR}/src/Types.cpp
 )
 
 add_library(${LIBRARY_NAME}

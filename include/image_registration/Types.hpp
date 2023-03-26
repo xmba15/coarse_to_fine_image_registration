@@ -19,5 +19,11 @@ struct KeyPointMatches {
     std::vector<cv::KeyPoint> refKpts;
     cv::Mat refDescs;
     std::vector<cv::DMatch> matchIndices;
+
+    std::size_t size() const;
+
+    cv::Mat estimateHomography(float reprojThresh = 5.0);
+
+    KeyPointMatches filterByHomography(float reprojThresh = 5.0);
 };
 }  // namespace _cv

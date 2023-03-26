@@ -21,3 +21,43 @@ jobs:
         uses: pre-commit/action@v3.0.0
         with:
           extra_args: --all-files
+
+  test-production:
+    runs-on: ubuntu-20.04
+    container:
+      image: xmba15/torch_cpp:1.12.1-ubuntu20.04
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+
+      - name: Set ownership
+        run: |
+          # https://github.com/actions/runner/issues/2033
+          chown -R $(id -u):$(id -g) $PWD
+
+      - name: Setup environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libopencv-dev
+
+      - name: Install torch_cpp
+        run: |
+          git clone https://github.com/xmba15/torch_cpp.git
+          cd torch_cpp
+          make default && sudo make install
+
+      - name: Test building
+        run: |
+          make apps -j`nproc`
+
+      - name: Unit test
+        continue-on-error: true
+        run: |
+          make unittest -j`nproc`
